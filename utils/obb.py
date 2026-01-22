@@ -24,8 +24,8 @@ def calculate_obb_from_canvas(
     - scaleX, scaleY: scale factors
 
     Returns normalized coordinates (0-1) for YOLO OBB format.
-    The corners are ordered: top-left, top-right, bottom-right, bottom-left
-    (when angle=0).
+    The corners are ordered counter-clockwise starting from top-left:
+    top-left, bottom-left, bottom-right, top-right (when angle=0).
     """
     # Apply scaling to get actual dimensions
     actual_width = width * scale_x
@@ -47,12 +47,13 @@ def calculate_obb_from_canvas(
     center_y = top + half_w * sin_a + half_h * cos_a
 
     # Define corners relative to center (before rotation)
-    # Order: top-left, top-right, bottom-right, bottom-left
+    # Order: counter-clockwise starting from top-left (YOLO OBB format)
+    # See: https://github.com/ultralytics/ultralytics/issues/19428
     corners_local = [
         (-half_w, -half_h),  # top-left
-        (half_w, -half_h),  # top-right
-        (half_w, half_h),  # bottom-right
         (-half_w, half_h),  # bottom-left
+        (half_w, half_h),  # bottom-right
+        (half_w, -half_h),  # top-right
     ]
 
     # Rotate and translate corners

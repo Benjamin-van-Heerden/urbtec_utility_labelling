@@ -2,3 +2,9 @@
 __pycache__
 .env
 annotations.db
+
+# mem docs data (vector DB and hashes)
+.mem/docs/data/
+
+# mem temp artifacts (onboard output)
+.mem/tmp/

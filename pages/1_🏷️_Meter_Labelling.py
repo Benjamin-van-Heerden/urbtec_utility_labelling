@@ -55,20 +55,20 @@ with st.expander("📖 Instructions & Examples", expanded=False):
        - **Move**: Drag the box to position it over the meter face
        - **Resize**: Use the corner handles to resize
        - **Rotate**: Use the rotation handle (circle above the box) to match the meter's orientation
-    4. Enter the meter reading for each detection (whole numbers only)
+    4. Enter the meter reading for each detection (whole numbers only - ignore decimals)
     5. Check the confirmation box when satisfied
     6. Click **Submit Annotation**
 
     ### What to annotate
 
-    **IMPORTANT: Only annotate the WHOLE NUMBER part of the meter reading!**
-
-    - Do **NOT** include the decimal/fractional digits (usually in red or after a decimal point)
-    - The box should tightly wrap **only** the black/white whole number digits
-    - Most meters have a clear visual separator (red section, decimal point, or dividing line) between whole and decimal parts
+    **Draw the bounding box around the ENTIRE METER FACE** - this includes:
+    - The full display area showing all digits (both whole and decimal)
+    - The meter face housing/frame
     - Rotate the box to align with the meter's orientation
 
-    Example: If the meter shows `12345.678`, only box the `12345` part.
+    **For the reading value:** Enter only the **whole number** portion (ignore any decimal digits).
+
+    Example: If the meter shows `12345.678`, draw the box around the entire meter face, but enter `12345` as the reading.
 
     ### Multiple meters
     - If multiple meters are visible, annotate **ALL** of them
@@ -108,6 +108,8 @@ if "detections" not in st.session_state:
     st.session_state.detections = []  # List of {"class_label": int, "rect": dict}
 if "canvas_key" not in st.session_state:
     st.session_state.canvas_key = 0
+if "confirmed" not in st.session_state:
+    st.session_state.confirmed = False
 
 
 def load_new_image():
@@ -117,6 +119,7 @@ def load_new_image():
     st.session_state.current_reading = None
     st.session_state.detections = []
     st.session_state.canvas_key += 1
+    st.session_state.confirmed = False
 
     # Check class distribution to decide if we need more electricity
     dist = get_class_distribution()
@@ -362,7 +365,10 @@ if st.session_state.current_reading and st.session_state.current_image:
     else:
         confirm_text = "✅ I have verified all annotations are correct"
 
-    confirmed = st.checkbox(confirm_text, key="confirm_checkbox")
+    confirmed = st.checkbox(
+        confirm_text, value=st.session_state.confirmed, key="confirm_checkbox"
+    )
+    st.session_state.confirmed = confirmed
 
     col_submit, col_skip = st.columns(2)
 
