@@ -1,4 +1,5 @@
 import json
+import random
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -6,7 +7,13 @@ from typing import Any
 import mysql.connector
 from mysql.connector.cursor_cext import CMySQLCursorDict
 
-from env_settings import ENV_SETTINGS
+from env_settings import (
+    ENV_SETTINGS,
+    HOT_WATER_CLIENTS,
+    SOURCE_CLIENTS,
+    TARGET_DISTRIBUTION,
+    SourceClient,
+)
 from utils.models.annotation import (
     Annotation,
     ClassDistribution,
@@ -131,7 +138,8 @@ def get_annotation_count() -> int:
 class SourceDBCursor:
     """Context manager for source MySQL database connection."""
 
-    def __init__(self):
+    def __init__(self, client: SourceClient):
+        self.client = client
         self.connection: Any = None
         self.cursor: Any = None
 
@@ -141,7 +149,7 @@ class SourceDBCursor:
             port=ENV_SETTINGS.source_db_port,
             user=ENV_SETTINGS.source_db_user,
             password=ENV_SETTINGS.source_db_password,
-            database=ENV_SETTINGS.source_db_name,
+            database=self.client.db_name,
             ssl_disabled=True,
             autocommit=True,
         )
@@ -156,15 +164,168 @@ class SourceDBCursor:
             self.connection.close()
 
 
-def fetch_random_reading(
-    prefer_electricity: bool = False,
+def get_all_annotated_reading_ids() -> dict[str, set[int]]:
+    """Get all annotated reading IDs grouped by client."""
+    conn = get_local_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT source_client, source_reading_id FROM annotations")
+    rows = cursor.fetchall()
+    conn.close()
+
+    result: dict[str, set[int]] = {}
+    for row in rows:
+        client = row["source_client"]
+        if client not in result:
+            result[client] = set()
+        result[client].add(row["source_reading_id"])
+
+    return result
+
+
+def select_target_utility_type(distribution: ClassDistribution) -> str:
+    """
+    Select which utility type to prioritize based on current distribution vs target.
+
+    Uses a probabilistic approach weighted by how far each type is from its target.
+    """
+    total = (
+        distribution.cold_water_count
+        + distribution.hot_water_count
+        + distribution.electricity_count
+    )
+
+    if total == 0:
+        # No annotations yet, pick randomly weighted by target distribution
+        r = random.random()
+        if r < TARGET_DISTRIBUTION["cold_water"]:
+            return "cold_water"
+        elif r < TARGET_DISTRIBUTION["cold_water"] + TARGET_DISTRIBUTION["hot_water"]:
+            return "hot_water"
+        else:
+            return "electricity"
+
+    # Calculate current proportions
+    current = {
+        "cold_water": distribution.cold_water_count / total,
+        "hot_water": distribution.hot_water_count / total,
+        "electricity": distribution.electricity_count / total,
+    }
+
+    # Calculate how far below target each type is (negative means over target)
+    deficits = {
+        utility_type: TARGET_DISTRIBUTION[utility_type] - current[utility_type]
+        for utility_type in TARGET_DISTRIBUTION
+    }
+
+    # Only consider types that are below target
+    positive_deficits = {k: v for k, v in deficits.items() if v > 0}
+
+    if not positive_deficits:
+        # All types at or above target, pick randomly by target weights
+        r = random.random()
+        if r < TARGET_DISTRIBUTION["cold_water"]:
+            return "cold_water"
+        elif r < TARGET_DISTRIBUTION["cold_water"] + TARGET_DISTRIBUTION["hot_water"]:
+            return "hot_water"
+        else:
+            return "electricity"
+
+    # Weight selection by deficit size
+    total_deficit = sum(positive_deficits.values())
+    r = random.random() * total_deficit
+    cumulative = 0.0
+    for utility_type, deficit in positive_deficits.items():
+        cumulative += deficit
+        if r <= cumulative:
+            return utility_type
+
+    # Fallback
+    return list(positive_deficits.keys())[0]
+
+
+def select_client_for_utility_type(utility_type: str) -> SourceClient:
+    """
+    Select a client that has the given utility type.
+
+    For hot_water, only certain clients have it (defined in HOT_WATER_CLIENTS).
+    Uses round-robin style selection with some randomness.
+    """
+    if utility_type == "hot_water":
+        candidates = [c for c in SOURCE_CLIENTS if c.name in HOT_WATER_CLIENTS]
+    else:
+        # All clients have cold_water and electricity
+        candidates = SOURCE_CLIENTS
+
+    # Pick randomly from candidates (simple approach)
+    return random.choice(candidates)
+
+
+def fetch_random_reading() -> tuple[SourceReading, str] | None:
+    """
+    Fetch a random meter reading from one of the source databases.
+
+    Selects utility type based on target distribution, then picks a client
+    that has that type, and fetches a random reading.
+
+    Returns:
+        Tuple of (SourceReading, client_name) or None if no readings found
+    """
+    distribution = get_class_distribution()
+    target_utility = select_target_utility_type(distribution)
+
+    # Get all annotated IDs grouped by client
+    annotated_by_client = get_all_annotated_reading_ids()
+
+    # Try each client in random order until we find a reading
+    clients_to_try = SOURCE_CLIENTS.copy()
+    random.shuffle(clients_to_try)
+
+    # But prioritize clients that have the target utility type
+    if target_utility == "hot_water":
+        hot_water_clients = [c for c in clients_to_try if c.name in HOT_WATER_CLIENTS]
+        other_clients = [c for c in clients_to_try if c.name not in HOT_WATER_CLIENTS]
+        clients_to_try = hot_water_clients + other_clients
+
+    for client in clients_to_try:
+        excluded_ids = annotated_by_client.get(client.name, set())
+
+        reading = fetch_reading_from_client(
+            client=client,
+            utility_type=target_utility,
+            excluded_ids=excluded_ids,
+        )
+
+        if reading is not None:
+            return (reading, client.name)
+
+    # If target utility not found, try any utility type
+    for client in clients_to_try:
+        excluded_ids = annotated_by_client.get(client.name, set())
+
+        reading = fetch_reading_from_client(
+            client=client,
+            utility_type=None,  # Any type
+            excluded_ids=excluded_ids,
+        )
+
+        if reading is not None:
+            return (reading, client.name)
+
+    return None
+
+
+def fetch_reading_from_client(
+    client: SourceClient,
+    utility_type: str | None = None,
     excluded_ids: set[int] | None = None,
 ) -> SourceReading | None:
     """
-    Fetch a random meter reading from the source database.
+    Fetch a random meter reading from a specific client database.
 
     Args:
-        prefer_electricity: If True, prefer electricity readings to balance dataset
+        client: The client to fetch from
+        utility_type: If specified, only fetch this utility type
         excluded_ids: Set of reading IDs to exclude (already annotated)
 
     Returns:
@@ -175,14 +336,12 @@ def fetch_random_reading(
     # Build the exclusion clause
     exclusion_clause = ""
     if excluded_ids:
-        # SQLite/MySQL can handle large IN clauses, but we'll limit to recent exclusions
-        # For very large sets, consider a different approach
         ids_str = ",".join(str(id) for id in list(excluded_ids)[:10000])
         exclusion_clause = f"AND mr.id NOT IN ({ids_str})"
 
-    # Determine utility type filter based on balance needs
-    if prefer_electricity:
-        utility_filter = "AND mh.utility_type = 'electricity'"
+    # Utility type filter
+    if utility_type:
+        utility_filter = f"AND mh.utility_type = '{utility_type}'"
     else:
         utility_filter = (
             "AND mh.utility_type IN ('cold_water', 'hot_water', 'electricity')"
@@ -204,11 +363,11 @@ def fetch_random_reading(
           AND mr.file_name NOT LIKE '%NOFILE%'
           {utility_filter}
           {exclusion_clause}
-        ORDER BY mr.reading_date DESC, RAND()
+        ORDER BY RAND()
         LIMIT 1
     """
 
-    with SourceDBCursor() as cursor:
+    with SourceDBCursor(client) as cursor:
         cursor.execute(query)
         row = cursor.fetchone()
 

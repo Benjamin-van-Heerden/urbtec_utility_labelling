@@ -7,13 +7,18 @@ from utils.session_state import (
     update_session_state,
 )
 
+USERS = {
+    "Benjamin": "Password456",
+    "Zelda": "Password123",
+}
+
 
 def login(user_name: str, password: str):
     session_state = get_session_state(login_page=True)
-    if user_name == "Benjamin" and password == "password":
-        session_state.username = "Benjamin"
+    if user_name in USERS and USERS[user_name] == password:
+        session_state.username = user_name
         update_session_state(session_state)
-        set_auth_token("Benjamin")
+        set_auth_token(user_name)
         st.toast("Logged in successfully")
         st.rerun()
     else:

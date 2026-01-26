@@ -17,6 +17,8 @@ st.divider()
 
 if state.is_authenticated:
     st.success(f"Welcome, {state.username}!")
+    if st.button("🏷️ Go to Meter Labelling", type="secondary", use_container_width=True):
+        st.switch_page("pages/1_🏷️_Meter_Labelling.py")
     st.button("Logout", on_click=logout)
 else:
     st.header("👤 Login to access the rest of the app")

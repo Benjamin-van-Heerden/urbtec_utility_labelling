@@ -1,14 +1,13 @@
 from io import BytesIO
+from pathlib import Path
 
 import httpx
 import streamlit as st
 from PIL import Image
 
 from components.streamlit_drawable_canvas import st_canvas
-from env_settings import ENV_SETTINGS
 from utils.database import (
     fetch_random_reading,
-    get_annotated_reading_ids,
     get_class_distribution,
     init_local_db,
     save_annotation,
@@ -41,6 +40,9 @@ DEFAULT_RECT_SIZE = 150
 
 st.title("🏷️ Label Meter Image")
 
+# Example images directory
+EXAMPLES_DIR = Path(__file__).parent.parent / "assets" / "examples"
+
 # Instructions expander
 with st.expander("📖 Instructions & Examples", expanded=False):
     st.markdown("""
@@ -48,9 +50,9 @@ with st.expander("📖 Instructions & Examples", expanded=False):
 
     1. Click **"Load New Image"** to fetch a meter image from the database
     2. For each meter visible in the image, click the appropriate button to add a bounding box:
-       - 🔵 **Add Cold Water Meter** (blue)
-       - 🟠 **Add Hot Water Meter** (orange)
-       - 🟢 **Add Electricity Meter** (green)
+       - **+ Cold Water**
+       - **+ Hot Water**
+       - **+ Electricity**
     3. Adjust each bounding box:
        - **Move**: Drag the box to position it over the meter face
        - **Resize**: Use the corner handles to resize
@@ -64,7 +66,8 @@ with st.expander("📖 Instructions & Examples", expanded=False):
     **Draw the bounding box around the ENTIRE METER FACE** - this includes:
     - The full display area showing all digits (both whole and decimal)
     - The meter face housing/frame
-    - Rotate the box to align with the meter's orientation
+    - Rotate the box to align with the meter's orientation using the rotation handle
+    - It is important that the top of the box is aligned with the top of the meter face
 
     **For the reading value:** Enter only the **whole number** portion (ignore any decimal digits).
 
@@ -81,6 +84,56 @@ with st.expander("📖 Instructions & Examples", expanded=False):
 
     **Note:** Blurry or hard-to-read meters should still be annotated if the meter face is visible.
     """)
+
+    st.markdown("### Examples")
+
+    # Row 1: Cold Water, Hot Water, Electricity
+    col1, col2, col3 = st.columns(3)
+
+    cold_water_example = EXAMPLES_DIR / "cold_water.jpg"
+    hot_water_example = EXAMPLES_DIR / "hot_water.jpg"
+    electricity_example = EXAMPLES_DIR / "electricity.jpg"
+
+    with col1:
+        st.markdown("**Cold Water Meter**")
+        if cold_water_example.exists():
+            st.image(str(cold_water_example), use_container_width=True)
+        else:
+            st.caption("_Example image needed_")
+
+    with col2:
+        st.markdown("**Hot Water Meter**")
+        if hot_water_example.exists():
+            st.image(str(hot_water_example), use_container_width=True)
+        else:
+            st.caption("_Example image needed_")
+
+    with col3:
+        st.markdown("**Electricity Meter**")
+        if electricity_example.exists():
+            st.image(str(electricity_example), use_container_width=True)
+        else:
+            st.caption("_Example image needed_")
+
+    # Row 2: Multi-meter and No Meter cases
+    col4, col5, col6 = st.columns(3)
+
+    multi_meter_example = EXAMPLES_DIR / "multi_meter.jpg"
+    no_meter_example = EXAMPLES_DIR / "no_meter.jpg"
+
+    with col4:
+        st.markdown("**Multiple Meters**")
+        if multi_meter_example.exists():
+            st.image(str(multi_meter_example), use_container_width=True)
+        else:
+            st.caption("_Example image needed_")
+
+    with col5:
+        st.markdown("**No Meter (Skip)**")
+        if no_meter_example.exists():
+            st.image(str(no_meter_example), use_container_width=True)
+        else:
+            st.caption("_Example image needed_")
 
 # Display stats
 distribution = get_class_distribution()
@@ -110,36 +163,36 @@ if "canvas_key" not in st.session_state:
     st.session_state.canvas_key = 0
 if "confirmed" not in st.session_state:
     st.session_state.confirmed = False
+if "current_client" not in st.session_state:
+    st.session_state.current_client = None  # Which client the current image is from
 
 
 def load_new_image():
-    """Load a new image from the source database."""
+    """Load a new image from one of the source databases."""
     st.session_state.image_load_error = None
     st.session_state.current_image = None
     st.session_state.current_reading = None
+    st.session_state.current_client = None
     st.session_state.detections = []
     st.session_state.canvas_key += 1
     st.session_state.confirmed = False
 
-    # Check class distribution to decide if we need more electricity
-    dist = get_class_distribution()
-    total = dist.cold_water_count + dist.hot_water_count + dist.electricity_count
-    prefer_electricity = total > 0 and (dist.electricity_count / total) < 0.3
-
-    # Get already annotated IDs
-    excluded_ids = get_annotated_reading_ids(ENV_SETTINGS.source_client_name)
-
     # Try to fetch a reading (with retries for failed image downloads)
     max_attempts = 5
-    for attempt in range(max_attempts):
-        reading = fetch_random_reading(
-            prefer_electricity=prefer_electricity,
-            excluded_ids=excluded_ids,
-        )
+    failed_readings: list[tuple[int, str]] = []  # (reading_id, client_name)
 
-        if reading is None:
+    for _ in range(max_attempts):
+        result = fetch_random_reading()
+
+        if result is None:
             st.session_state.image_load_error = "No more images available to annotate."
             return
+
+        reading, client_name = result
+
+        # Skip if we already failed to download this one
+        if (reading.reading_id, client_name) in failed_readings:
+            continue
 
         # Try to download the image
         try:
@@ -155,11 +208,11 @@ def load_new_image():
 
                 st.session_state.current_reading = reading
                 st.session_state.current_image = image
+                st.session_state.current_client = client_name
                 return
 
         except Exception:
-            # Add this ID to excluded to avoid retrying
-            excluded_ids.add(reading.reading_id)
+            failed_readings.append((reading.reading_id, client_name))
             continue
 
     st.session_state.image_load_error = (
@@ -240,8 +293,9 @@ if st.session_state.current_reading and st.session_state.current_image:
     img_width, img_height = image.size
 
     # Display reading info from source database
+    client_name = st.session_state.current_client or "Unknown"
     st.info(
-        f"📋 **According to our records:**\n\n"
+        f"📋 **According to our records:** (Source: {client_name})\n\n"
         f"- Meter type: **{reading.utility_type_display}**\n"
         f"- Previous reading: **{reading.reading_old_whole if reading.reading_old_whole is not None else 'N/A'}**\n"
         f"- Reading in this image: **{reading.reading_new_whole if reading.reading_new_whole is not None else 'N/A'}**"
@@ -253,17 +307,16 @@ if st.session_state.current_reading and st.session_state.current_image:
         "objects": [d["rect"] for d in st.session_state.detections],
     }
 
-    # Show canvas first so we can get current positions
+    # Canvas
     st.markdown("### Annotation Canvas")
     if st.session_state.detections:
         st.caption(
             "Move, resize, and rotate each box to fit the meter face. "
-            "Use the rotation handle (circle above) to rotate. "
-            "Double-click a box to delete it."
+            "Use the rotation handle (circle above) to rotate."
         )
     else:
         st.caption(
-            "Add meter detections using the buttons above, or submit with no detections if no meter is visible."
+            "Add a meter detection using the buttons below, or submit with no detections if no meter is visible."
         )
 
     canvas_result = st_canvas(
@@ -286,21 +339,21 @@ if st.session_state.current_reading and st.session_state.current_image:
         canvas_objects = canvas_result.json_data["objects"]
 
     # Add detection buttons (after canvas so we can access current positions)
-    st.markdown("### Add Meter Detections")
+    st.markdown("### Add Meter Detection")
     col_btn1, col_btn2, col_btn3 = st.columns(3)
 
     with col_btn1:
-        if st.button("+ Cold Water Meter", use_container_width=True):
+        if st.button("+ Cold Water", use_container_width=True):
             add_detection(0, canvas_objects)
             st.rerun()
 
     with col_btn2:
-        if st.button("+ Hot Water Meter", use_container_width=True):
+        if st.button("+ Hot Water", use_container_width=True):
             add_detection(1, canvas_objects)
             st.rerun()
 
     with col_btn3:
-        if st.button("+ Electricity Meter", use_container_width=True):
+        if st.button("+ Electricity", use_container_width=True):
             add_detection(2, canvas_objects)
             st.rerun()
 
@@ -341,21 +394,6 @@ if st.session_state.current_reading and st.session_state.current_image:
                 if st.button("🗑️", key=f"remove_{i}", help="Remove this detection"):
                     remove_detection(i, canvas_objects)
                     st.rerun()
-
-    # Show YOLO format preview
-    if st.session_state.detections:
-        with st.expander("📐 YOLO OBB Format Preview", expanded=False):
-            canvas_objs = []
-            if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                canvas_objs = canvas_result.json_data["objects"]
-
-            for i, detection in enumerate(st.session_state.detections):
-                if i < len(canvas_objs) and canvas_objs[i].get("type") == "rect":
-                    rect = canvas_objs[i]
-                else:
-                    rect = detection["rect"]
-                obb = calculate_obb_from_fabric_object(rect, img_width, img_height)
-                st.code(obb.to_yolo_format(detection["class_label"]))
 
     st.divider()
 
@@ -402,7 +440,7 @@ if st.session_state.current_reading and st.session_state.current_image:
 
             # Create and save annotation
             annotation = Annotation(
-                source_client=ENV_SETTINGS.source_client_name,
+                source_client=st.session_state.current_client,
                 source_reading_id=reading.reading_id,
                 image_url=reading.image_url,
                 detections=detection_objects,

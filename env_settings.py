@@ -1,19 +1,55 @@
 from dotenv import load_dotenv
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 load_dotenv()
 
 
+class SourceClient(BaseModel):
+    name: str
+    db_name: str
+
+
+# QA environment clients (mobixhep_* databases)
+QA_CLIENTS = [
+    SourceClient(name="Huurkor", db_name="mobixhep_huurkor"),
+    SourceClient(name="TopCharge", db_name="mobixhep_topcharge"),
+    SourceClient(name="Paxton", db_name="mobixhep_paxton"),
+    SourceClient(name="MRC", db_name="mobixhep_mrc"),
+]
+
+# Prod environment clients (mobixenn_mobiX_* databases)
+PROD_CLIENTS = [
+    SourceClient(name="Huurkor", db_name="mobixenn_mobiX_c507db"),
+    SourceClient(name="TopCharge", db_name="mobixenn_mobiX_c509db"),
+    SourceClient(name="Pharoah", db_name="mobixenn_mobiX_c522db"),
+    SourceClient(name="Paxton", db_name="mobixenn_mobiX_c502db"),
+    SourceClient(name="MRC", db_name="mobixenn_mobiX_c510db"),
+    SourceClient(name="solver", db_name="mobixenn_mobiX_c506db"),
+]
+
+# Clients with hot water meters (for prioritization)
+HOT_WATER_CLIENTS = {"Huurkor", "TopCharge", "Pharoah", "solver", "UTF", "PMD"}
+
+# Target distribution for labelled items: cold_water, hot_water, electricity
+TARGET_DISTRIBUTION = {
+    "cold_water": 0.60,
+    "hot_water": 0.10,
+    "electricity": 0.30,
+}
+
+
 class Settings(BaseSettings):
     jwt_salt: str = ""
 
-    # Source database credentials (Huurkor)
+    # Environment: "qa" or "prod"
+    app_env: str = "qa"
+
+    # Source database credentials (shared across all clients)
     source_db_host: str = ""
     source_db_port: int = 3306
     source_db_user: str = ""
     source_db_password: str = ""
-    source_db_name: str = ""
-    source_client_name: str = "Huurkor"
 
 
 def get_env_or_die():
@@ -29,3 +65,6 @@ def get_env_or_die():
 
 
 ENV_SETTINGS = get_env_or_die()
+
+# Select clients based on environment
+SOURCE_CLIENTS = PROD_CLIENTS if ENV_SETTINGS.app_env == "prod" else QA_CLIENTS
