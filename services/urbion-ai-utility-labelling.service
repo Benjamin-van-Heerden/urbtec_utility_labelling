@@ -8,7 +8,8 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/projects/urbtec_utility_labelling
 Environment="PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/home/ubuntu/.local/bin/uv run streamlit run __🏠_Home.py \
+ExecStart=LD_PRELOAD=/lib/x86_64-linux-gnu/libstdc++.so.6 \
+    /home/ubuntu/.local/bin/uv run streamlit run __🏠_Home.py \
     --server.address 0.0.0.0 \
     --server.port 8501 \
     --server.fileWatcherType none \
