@@ -19,13 +19,12 @@ from utils.models.annotation import (
     SourceReading,
     get_detection_color,
 )
-from utils.obb import calculate_obb_from_fabric_object
+from utils.obb import calculate_obb_from_fabric_object, validate_bounding_box
 from utils.session_state import get_session_state
 
 st.set_page_config(
     page_title="Meter Labelling",
     page_icon="🏷️",
-    layout="wide",
 )
 
 state = get_session_state()
@@ -50,8 +49,7 @@ with st.expander("📖 Instructions & Examples", expanded=False):
 
     1. Click **"Load New Image"** to fetch a meter image from the database
     2. For each meter visible in the image, click the appropriate button to add a bounding box:
-       - **+ Cold Water**
-       - **+ Hot Water**
+       - **+ Water** (for both cold and hot water meters)
        - **+ Electricity**
     3. Adjust each bounding box:
        - **Move**: Drag the box to position it over the meter face
@@ -87,65 +85,59 @@ with st.expander("📖 Instructions & Examples", expanded=False):
 
     st.markdown("### Examples")
 
-    # Row 1: Cold Water, Hot Water, Electricity
-    col1, col2, col3 = st.columns(3)
+    # Water meter examples
+    st.markdown("#### Water Meters")
+    water_examples = [
+        EXAMPLES_DIR / "cold_water_1.png",
+        EXAMPLES_DIR / "cold_water_2.png",
+        EXAMPLES_DIR / "cold_water_3.png",
+        EXAMPLES_DIR / "cold_water_4.png",
+        EXAMPLES_DIR / "cold_water_5.png",
+        EXAMPLES_DIR / "cold_water_6.png",
+        EXAMPLES_DIR / "hot_water_1.png",
+    ]
 
-    cold_water_example = EXAMPLES_DIR / "cold_water.jpg"
-    hot_water_example = EXAMPLES_DIR / "hot_water.jpg"
-    electricity_example = EXAMPLES_DIR / "electricity.jpg"
+    cols = st.columns(2)
+    for i, example in enumerate(water_examples):
+        with cols[i % 2]:
+            if example.exists():
+                st.image(str(example), use_container_width=True)
 
-    with col1:
-        st.markdown("**Cold Water Meter**")
-        if cold_water_example.exists():
-            st.image(str(cold_water_example), use_container_width=True)
-        else:
-            st.caption("_Example image needed_")
+    # Multi-meter example
+    st.markdown("#### Multiple Meters")
+    multi_example = EXAMPLES_DIR / "multi_1.png"
+    if multi_example.exists():
+        st.image(str(multi_example), width=400)
 
-    with col2:
-        st.markdown("**Hot Water Meter**")
-        if hot_water_example.exists():
-            st.image(str(hot_water_example), use_container_width=True)
-        else:
-            st.caption("_Example image needed_")
+    # Electricity meter examples
+    st.markdown("#### Electricity Meters")
+    electricity_examples = [
+        EXAMPLES_DIR / "electricity_1.png",
+        EXAMPLES_DIR / "electricity_2.png",
+        EXAMPLES_DIR / "electricity_3.png",
+        EXAMPLES_DIR / "electricity_4.png",
+        EXAMPLES_DIR / "electricity_5.png",
+        EXAMPLES_DIR / "electricity_6.png",
+        EXAMPLES_DIR / "electricity_7.png",
+        EXAMPLES_DIR / "electricity_8.png",
+        EXAMPLES_DIR / "electricity_9.png",
+    ]
 
-    with col3:
-        st.markdown("**Electricity Meter**")
-        if electricity_example.exists():
-            st.image(str(electricity_example), use_container_width=True)
-        else:
-            st.caption("_Example image needed_")
-
-    # Row 2: Multi-meter and No Meter cases
-    col4, col5, col6 = st.columns(3)
-
-    multi_meter_example = EXAMPLES_DIR / "multi_meter.jpg"
-    no_meter_example = EXAMPLES_DIR / "no_meter.jpg"
-
-    with col4:
-        st.markdown("**Multiple Meters**")
-        if multi_meter_example.exists():
-            st.image(str(multi_meter_example), use_container_width=True)
-        else:
-            st.caption("_Example image needed_")
-
-    with col5:
-        st.markdown("**No Meter (Skip)**")
-        if no_meter_example.exists():
-            st.image(str(no_meter_example), use_container_width=True)
-        else:
-            st.caption("_Example image needed_")
+    cols = st.columns(2)
+    for i, example in enumerate(electricity_examples):
+        with cols[i % 2]:
+            if example.exists():
+                st.image(str(example), use_container_width=True)
 
 # Display stats
 distribution = get_class_distribution()
-col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+col_stats1, col_stats2, col_stats3 = st.columns(3)
 
 with col_stats1:
     st.metric("Total Images", distribution.total_images)
 with col_stats2:
-    st.metric("Cold Water", distribution.cold_water_count)
+    st.metric("Water", distribution.water_count)
 with col_stats3:
-    st.metric("Hot Water", distribution.hot_water_count)
-with col_stats4:
     st.metric("Electricity", distribution.electricity_count)
 
 st.divider()
@@ -161,8 +153,6 @@ if "detections" not in st.session_state:
     st.session_state.detections = []  # List of {"class_label": int, "rect": dict}
 if "canvas_key" not in st.session_state:
     st.session_state.canvas_key = 0
-if "confirmed" not in st.session_state:
-    st.session_state.confirmed = False
 if "current_client" not in st.session_state:
     st.session_state.current_client = None  # Which client the current image is from
 
@@ -175,7 +165,6 @@ def load_new_image():
     st.session_state.current_client = None
     st.session_state.detections = []
     st.session_state.canvas_key += 1
-    st.session_state.confirmed = False
 
     # Try to fetch a reading (with retries for failed image downloads)
     max_attempts = 5
@@ -340,21 +329,16 @@ if st.session_state.current_reading and st.session_state.current_image:
 
     # Add detection buttons (after canvas so we can access current positions)
     st.markdown("### Add Meter Detection")
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    col_btn1, col_btn2 = st.columns(2)
 
     with col_btn1:
-        if st.button("+ Cold Water", use_container_width=True):
+        if st.button("+ Water", use_container_width=True):
             add_detection(0, canvas_objects)
             st.rerun()
 
     with col_btn2:
-        if st.button("+ Hot Water", use_container_width=True):
-            add_detection(1, canvas_objects)
-            st.rerun()
-
-    with col_btn3:
         if st.button("+ Electricity", use_container_width=True):
-            add_detection(2, canvas_objects)
+            add_detection(1, canvas_objects)
             st.rerun()
 
     st.divider()
@@ -362,6 +346,13 @@ if st.session_state.current_reading and st.session_state.current_image:
     # Detection details and reading inputs
     if st.session_state.detections:
         st.markdown("### Detection Details")
+
+        # Column headings
+        col_h1, col_h2, col_h3 = st.columns([2, 2, 1])
+        with col_h1:
+            st.markdown("**Detection**")
+        with col_h2:
+            st.markdown("**Reading (Whole Number Only)**")
 
         for i, detection in enumerate(st.session_state.detections):
             class_label = detection["class_label"]
@@ -397,24 +388,18 @@ if st.session_state.current_reading and st.session_state.current_image:
 
     st.divider()
 
-    # Confirmation and submit
-    if not st.session_state.detections:
-        confirm_text = "✅ I confirm that no utility meter face is present in the image"
-    else:
-        confirm_text = "✅ I have verified all annotations are correct"
-
-    confirmed = st.checkbox(
-        confirm_text, value=st.session_state.confirmed, key="confirm_checkbox"
-    )
-    st.session_state.confirmed = confirmed
-
     col_submit, col_skip = st.columns(2)
+
+    submit_label = (
+        "💾 Submit Annotation"
+        if st.session_state.detections
+        else "💾 Submit Annotation (No Meter)"
+    )
 
     with col_submit:
         if st.button(
-            "💾 Submit Annotation",
+            submit_label,
             type="primary",
-            disabled=not confirmed,
             use_container_width=True,
         ):
             # Build detections list - get current rects from canvas
@@ -423,44 +408,64 @@ if st.session_state.current_reading and st.session_state.current_image:
             if canvas_result.json_data and canvas_result.json_data.get("objects"):
                 canvas_objects = canvas_result.json_data["objects"]
 
+            # Validate all bounding boxes first
+            validation_errors = []
             for i, detection in enumerate(st.session_state.detections):
-                # Use canvas rect if available, otherwise use stored rect
                 if i < len(canvas_objects) and canvas_objects[i].get("type") == "rect":
                     rect = canvas_objects[i]
                 else:
                     rect = detection["rect"]
-                obb = calculate_obb_from_fabric_object(rect, img_width, img_height)
-                detection_objects.append(
-                    Detection(
-                        class_label=detection["class_label"],
-                        obb=obb,
-                        annotator_reading=detection.get("annotator_reading"),
+
+                is_valid, error_msg = validate_bounding_box(rect, img_width, img_height)
+                if not is_valid:
+                    class_name = CLASS_DISPLAY_NAMES[detection["class_label"]]
+                    validation_errors.append(
+                        f"Detection {i + 1} ({class_name}): {error_msg}"
                     )
+
+            if validation_errors:
+                for error in validation_errors:
+                    st.error(error)
+            else:
+                for i, detection in enumerate(st.session_state.detections):
+                    # Use canvas rect if available, otherwise use stored rect
+                    if (
+                        i < len(canvas_objects)
+                        and canvas_objects[i].get("type") == "rect"
+                    ):
+                        rect = canvas_objects[i]
+                    else:
+                        rect = detection["rect"]
+                    obb = calculate_obb_from_fabric_object(rect, img_width, img_height)
+                    detection_objects.append(
+                        Detection(
+                            class_label=detection["class_label"],
+                            obb=obb,
+                            annotator_reading=detection.get("annotator_reading"),
+                        )
+                    )
+
+                # Create and save annotation
+                annotation = Annotation(
+                    source_client=st.session_state.current_client,
+                    source_reading_id=reading.reading_id,
+                    image_url=reading.image_url,
+                    detections=detection_objects,
+                    annotated_by=state.username,
                 )
 
-            # Create and save annotation
-            annotation = Annotation(
-                source_client=st.session_state.current_client,
-                source_reading_id=reading.reading_id,
-                image_url=reading.image_url,
-                detections=detection_objects,
-                annotated_by=state.username,
-            )
-
-            try:
-                save_annotation(annotation)
-                st.toast("Annotation saved!")
-                # Auto-load next image
-                load_new_image()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to save annotation: {e}")
+                try:
+                    save_annotation(annotation)
+                    st.toast("Annotation saved!")
+                    # Auto-load next image
+                    load_new_image()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to save annotation: {e}")
 
     with col_skip:
         if st.button("⏭️ Skip Image", use_container_width=True):
-            st.session_state.current_reading = None
-            st.session_state.current_image = None
-            st.session_state.detections = []
+            load_new_image()
             st.rerun()
 
 else:

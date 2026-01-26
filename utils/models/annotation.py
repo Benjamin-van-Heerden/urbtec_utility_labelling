@@ -4,25 +4,25 @@ from typing import Literal
 from pydantic import BaseModel
 
 # Class labels for meter types
-MeterClass = Literal[0, 1, 2]  # 0=cold_water, 1=hot_water, 2=electricity
+MeterClass = Literal[0, 1]  # 0=water, 1=electricity
 
 CLASS_LABELS = {
-    0: "cold_water",
-    1: "hot_water",
-    2: "electricity",
+    0: "water",
+    1: "electricity",
 }
 
 CLASS_DISPLAY_NAMES = {
-    0: "Cold Water",
-    1: "Hot Water",
-    2: "Electricity",
+    0: "Water",
+    1: "Electricity",
 }
 
 # Colors for each class (CSS rgba)
 CLASS_COLORS = {
-    0: {"fill": "rgba(0, 150, 255, 0.3)", "stroke": "#0096ff"},  # Blue for cold water
-    1: {"fill": "rgba(255, 100, 0, 0.3)", "stroke": "#ff6400"},  # Orange for hot water
-    2: {"fill": "rgba(0, 255, 0, 0.3)", "stroke": "#00ff00"},  # Green for electricity
+    0: {"fill": "rgba(0, 150, 255, 0.3)", "stroke": "#0096ff"},  # Blue for water
+    1: {
+        "fill": "rgba(255, 200, 0, 0.3)",
+        "stroke": "#ffc800",
+    },  # Yellow for electricity
 }
 
 # Distinct colors for detection indices (to tell boxes apart visually)
@@ -146,7 +146,7 @@ class SourceReading(BaseModel):
 
     reading_id: int
     meter_no: str
-    utility_type: str | None  # 'cold_water', 'hot_water', 'electricity'
+    utility_type: str | None  # 'water', 'electricity'
     image_url: str
     reading_new: float | None = None  # The reading captured in this image
     reading_old: float | None = None  # The previous reading
@@ -154,10 +154,8 @@ class SourceReading(BaseModel):
     @property
     def utility_type_display(self) -> str:
         """Human-readable utility type."""
-        if self.utility_type == "cold_water":
-            return "Cold Water"
-        elif self.utility_type == "hot_water":
-            return "Hot Water"
+        if self.utility_type == "water":
+            return "Water"
         elif self.utility_type == "electricity":
             return "Electricity"
         return "Unknown"
@@ -180,22 +178,16 @@ class SourceReading(BaseModel):
 class ClassDistribution(BaseModel):
     """Current distribution of annotated classes."""
 
-    cold_water_count: int = 0
-    hot_water_count: int = 0
+    water_count: int = 0
     electricity_count: int = 0
     no_meter_count: int = 0
 
     @property
     def total_images(self) -> int:
         """Total number of annotated images."""
-        return (
-            self.cold_water_count
-            + self.hot_water_count
-            + self.electricity_count
-            + self.no_meter_count
-        )
+        return self.water_count + self.electricity_count + self.no_meter_count
 
     @property
     def total_detections(self) -> int:
         """This is now tracked differently - see database function."""
-        return self.cold_water_count + self.hot_water_count + self.electricity_count
+        return self.water_count + self.electricity_count

@@ -108,3 +108,62 @@ def calculate_obb_from_fabric_object(
         canvas_width=canvas_width,
         canvas_height=canvas_height,
     )
+
+
+def validate_bounding_box(
+    obj: dict,
+    canvas_width: int,
+    canvas_height: int,
+) -> tuple[bool, str]:
+    """
+    Validate that a bounding box is fully contained within the image bounds.
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    left = obj.get("left", 0)
+    top = obj.get("top", 0)
+    width = obj.get("width", 0)
+    height = obj.get("height", 0)
+    angle = obj.get("angle", 0)
+    scale_x = obj.get("scaleX", 1)
+    scale_y = obj.get("scaleY", 1)
+
+    # Apply scaling to get actual dimensions
+    actual_width = width * scale_x
+    actual_height = height * scale_y
+
+    # Check if dimensions exceed image size
+    if actual_width > canvas_width:
+        return False, "Bounding box width exceeds image width"
+    if actual_height > canvas_height:
+        return False, "Bounding box height exceeds image height"
+
+    # Calculate corners to check if they're within bounds
+    half_w = actual_width / 2
+    half_h = actual_height / 2
+
+    angle_rad = math.radians(angle)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+
+    center_x = left + half_w * cos_a - half_h * sin_a
+    center_y = top + half_w * sin_a + half_h * cos_a
+
+    corners_local = [
+        (-half_w, -half_h),
+        (-half_w, half_h),
+        (half_w, half_h),
+        (half_w, -half_h),
+    ]
+
+    for lx, ly in corners_local:
+        rx = lx * cos_a - ly * sin_a
+        ry = lx * sin_a + ly * cos_a
+        x = center_x + rx
+        y = center_y + ry
+
+        if x < 0 or x > canvas_width or y < 0 or y > canvas_height:
+            return False, "Bounding box extends outside image bounds"
+
+    return True, ""

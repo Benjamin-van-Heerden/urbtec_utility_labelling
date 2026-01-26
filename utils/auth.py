@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 
 from utils.session_state import (
@@ -20,6 +22,8 @@ def login(user_name: str, password: str):
         update_session_state(session_state)
         set_auth_token(user_name)
         st.toast("Logged in successfully")
+        # Small delay to allow cookie to be set via JS
+        time.sleep(0.5)
         st.rerun()
     else:
         st.toast("Invalid credentials")

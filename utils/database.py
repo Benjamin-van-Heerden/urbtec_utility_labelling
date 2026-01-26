@@ -9,7 +9,6 @@ from mysql.connector.cursor_cext import CMySQLCursorDict
 
 from env_settings import (
     ENV_SETTINGS,
-    HOT_WATER_CLIENTS,
     SOURCE_CLIENTS,
     TARGET_DISTRIBUTION,
     SourceClient,
@@ -54,8 +53,7 @@ def get_class_distribution() -> ClassDistribution:
     rows = cursor.fetchall()
     conn.close()
 
-    cold_water_count = 0
-    hot_water_count = 0
+    water_count = 0
     electricity_count = 0
     no_meter_count = 0
 
@@ -67,15 +65,12 @@ def get_class_distribution() -> ClassDistribution:
             for det in detections:
                 class_label = det["class_label"]
                 if class_label == 0:
-                    cold_water_count += 1
+                    water_count += 1
                 elif class_label == 1:
-                    hot_water_count += 1
-                elif class_label == 2:
                     electricity_count += 1
 
     return ClassDistribution(
-        cold_water_count=cold_water_count,
-        hot_water_count=hot_water_count,
+        water_count=water_count,
         electricity_count=electricity_count,
         no_meter_count=no_meter_count,
     )
@@ -189,26 +184,19 @@ def select_target_utility_type(distribution: ClassDistribution) -> str:
 
     Uses a probabilistic approach weighted by how far each type is from its target.
     """
-    total = (
-        distribution.cold_water_count
-        + distribution.hot_water_count
-        + distribution.electricity_count
-    )
+    total = distribution.water_count + distribution.electricity_count
 
     if total == 0:
         # No annotations yet, pick randomly weighted by target distribution
         r = random.random()
-        if r < TARGET_DISTRIBUTION["cold_water"]:
-            return "cold_water"
-        elif r < TARGET_DISTRIBUTION["cold_water"] + TARGET_DISTRIBUTION["hot_water"]:
-            return "hot_water"
+        if r < TARGET_DISTRIBUTION["water"]:
+            return "water"
         else:
             return "electricity"
 
     # Calculate current proportions
     current = {
-        "cold_water": distribution.cold_water_count / total,
-        "hot_water": distribution.hot_water_count / total,
+        "water": distribution.water_count / total,
         "electricity": distribution.electricity_count / total,
     }
 
@@ -224,10 +212,8 @@ def select_target_utility_type(distribution: ClassDistribution) -> str:
     if not positive_deficits:
         # All types at or above target, pick randomly by target weights
         r = random.random()
-        if r < TARGET_DISTRIBUTION["cold_water"]:
-            return "cold_water"
-        elif r < TARGET_DISTRIBUTION["cold_water"] + TARGET_DISTRIBUTION["hot_water"]:
-            return "hot_water"
+        if r < TARGET_DISTRIBUTION["water"]:
+            return "water"
         else:
             return "electricity"
 
@@ -248,17 +234,9 @@ def select_client_for_utility_type(utility_type: str) -> SourceClient:
     """
     Select a client that has the given utility type.
 
-    For hot_water, only certain clients have it (defined in HOT_WATER_CLIENTS).
-    Uses round-robin style selection with some randomness.
+    All clients have both water and electricity meters.
     """
-    if utility_type == "hot_water":
-        candidates = [c for c in SOURCE_CLIENTS if c.name in HOT_WATER_CLIENTS]
-    else:
-        # All clients have cold_water and electricity
-        candidates = SOURCE_CLIENTS
-
-    # Pick randomly from candidates (simple approach)
-    return random.choice(candidates)
+    return random.choice(SOURCE_CLIENTS)
 
 
 def fetch_random_reading() -> tuple[SourceReading, str] | None:
@@ -280,12 +258,6 @@ def fetch_random_reading() -> tuple[SourceReading, str] | None:
     # Try each client in random order until we find a reading
     clients_to_try = SOURCE_CLIENTS.copy()
     random.shuffle(clients_to_try)
-
-    # But prioritize clients that have the target utility type
-    if target_utility == "hot_water":
-        hot_water_clients = [c for c in clients_to_try if c.name in HOT_WATER_CLIENTS]
-        other_clients = [c for c in clients_to_try if c.name not in HOT_WATER_CLIENTS]
-        clients_to_try = hot_water_clients + other_clients
 
     for client in clients_to_try:
         excluded_ids = annotated_by_client.get(client.name, set())
@@ -340,8 +312,11 @@ def fetch_reading_from_client(
         exclusion_clause = f"AND mr.id NOT IN ({ids_str})"
 
     # Utility type filter
-    if utility_type:
-        utility_filter = f"AND mh.utility_type = '{utility_type}'"
+    # Note: source DB still has 'cold_water' and 'hot_water' - we map both to 'water'
+    if utility_type == "water":
+        utility_filter = "AND mh.utility_type IN ('cold_water', 'hot_water')"
+    elif utility_type == "electricity":
+        utility_filter = "AND mh.utility_type = 'electricity'"
     else:
         utility_filter = (
             "AND mh.utility_type IN ('cold_water', 'hot_water', 'electricity')"
@@ -374,10 +349,17 @@ def fetch_reading_from_client(
     if row is None:
         return None
 
+    # Map source utility types to our simplified types
+    source_utility = row["utility_type"]
+    if source_utility in ("cold_water", "hot_water"):
+        mapped_utility = "water"
+    else:
+        mapped_utility = source_utility
+
     return SourceReading(
         reading_id=row["reading_id"],
         meter_no=row["meter_no"],
-        utility_type=row["utility_type"],
+        utility_type=mapped_utility,
         image_url=row["image_url"],
         reading_new=row["reading_new"],
         reading_old=row["reading_old"],

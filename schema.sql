@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS annotations (
     image_url TEXT NOT NULL,
 
     -- Detections as JSON array, each element:
-    -- {"class_label": 0|1|2, "obb": [x1,y1,x2,y2,x3,y3,x4,y4], "annotator_reading": int|null}
-    -- class_label: 0=cold_water, 1=hot_water, 2=electricity
+    -- {"class_label": 0|1, "obb": [x1,y1,x2,y2,x3,y3,x4,y4], "annotator_reading": int|null}
+    -- class_label: 0=water, 1=electricity
     -- Empty array [] means no meters present
     detections TEXT NOT NULL DEFAULT '[]',
 

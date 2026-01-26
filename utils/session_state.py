@@ -23,6 +23,9 @@ def initialize_session_state():
         auth_token = st.session_state.get("auth_token")
         cookie_token = cookie_controller.get("auth_cookie")
 
+        # Debug: uncomment to see what's happening
+        # st.write(f"DEBUG: auth_token={auth_token is not None}, cookie_token={cookie_token is not None}")
+
         if auth_token and not cookie_token:
             cookie_controller.set("auth_cookie", auth_token, max_age=60 * 60 * 24 * 7)
 
@@ -44,7 +47,9 @@ def initialize_session_state():
                 jwt.DecodeError,
                 jwt.ExpiredSignatureError,
             ):
-                pass
+                # Clear invalid token
+                cookie_controller.remove("auth_cookie")
+                st.session_state.pop("auth_token", None)
 
 
 def get_session_state(login_page: bool = False) -> SessionState:
@@ -70,8 +75,11 @@ def set_auth_token(username: str):
     """Create and store JWT token for authenticated user"""
     payload = {"username": username}
     token = jwt.encode(payload, ENV_SETTINGS.jwt_salt, algorithm=JWT_ALGORITHM)
-    cookie_controller.set("auth_cookie", token, max_age=60 * 60 * 24 * 7)  # 7 days
+    # Store in session state first (immediate)
     st.session_state["auth_token"] = token
+    # Store in cookie for persistence across browser restarts
+    # Note: This is async, so we also store in session state above
+    cookie_controller.set("auth_cookie", token, max_age=60 * 60 * 24 * 7)  # 7 days
 
 
 def clear_auth_token():

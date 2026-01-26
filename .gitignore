@@ -8,3 +8,6 @@ annotations.db
 
 # mem temp artifacts (onboard output)
 .mem/tmp/
+
+# mem worktree symlinks (auto-added)
+.claude

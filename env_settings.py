@@ -28,13 +28,9 @@ PROD_CLIENTS = [
     SourceClient(name="solver", db_name="mobixenn_mobiX_c506db"),
 ]
 
-# Clients with hot water meters (for prioritization)
-HOT_WATER_CLIENTS = {"Huurkor", "TopCharge", "Pharoah", "solver", "UTF", "PMD"}
-
-# Target distribution for labelled items: cold_water, hot_water, electricity
+# Target distribution for labelled items: water, electricity
 TARGET_DISTRIBUTION = {
-    "cold_water": 0.60,
-    "hot_water": 0.10,
+    "water": 0.70,
     "electricity": 0.30,
 }
 
