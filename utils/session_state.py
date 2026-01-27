@@ -5,9 +5,12 @@ from streamlit_cookies_controller import CookieController
 from env_settings import ENV_SETTINGS
 from utils.models.session_state import SessionState
 
-cookie_controller = CookieController()
-
 JWT_ALGORITHM = "HS256"
+COOKIE_CONTROLLER_KEY = "auth_cookies"
+
+
+def get_cookie_controller() -> CookieController:
+    return CookieController(key=COOKIE_CONTROLLER_KEY)
 
 
 def initialize_session_state():
@@ -21,13 +24,20 @@ def initialize_session_state():
     if not st.session_state["state"].is_authenticated:
         # Check session state first (hot reload)
         auth_token = st.session_state.get("auth_token")
-        cookie_token = cookie_controller.get("auth_cookie")
 
-        # Debug: uncomment to see what's happening
-        # st.write(f"DEBUG: auth_token={auth_token is not None}, cookie_token={cookie_token is not None}")
+        # Get cookie controller - on first render after refresh, this may return
+        # None as the JS component hasn't loaded yet
+        controller = get_cookie_controller()
+        all_cookies = controller.getAll()
+
+        # Force a rerun if cookies haven't loaded yet
+        if all_cookies is None:
+            st.rerun()
+
+        cookie_token = controller.get("auth_cookie")
 
         if auth_token and not cookie_token:
-            cookie_controller.set("auth_cookie", auth_token, max_age=60 * 60 * 24 * 7)
+            controller.set("auth_cookie", auth_token, max_age=60 * 60 * 24 * 7)
 
         if not auth_token:
             # Check cookie (browser restart)
@@ -48,7 +58,7 @@ def initialize_session_state():
                 jwt.ExpiredSignatureError,
             ):
                 # Clear invalid token
-                cookie_controller.remove("auth_cookie")
+                controller.remove("auth_cookie")
                 st.session_state.pop("auth_token", None)
 
 
@@ -79,10 +89,12 @@ def set_auth_token(username: str):
     st.session_state["auth_token"] = token
     # Store in cookie for persistence across browser restarts
     # Note: This is async, so we also store in session state above
-    cookie_controller.set("auth_cookie", token, max_age=60 * 60 * 24 * 7)  # 7 days
+    get_cookie_controller().set(
+        "auth_cookie", token, max_age=60 * 60 * 24 * 7
+    )  # 7 days
 
 
 def clear_auth_token():
     """Clear authentication token from cookie and session"""
-    cookie_controller.remove("auth_cookie")
+    get_cookie_controller().remove("auth_cookie")
     st.session_state.pop("auth_token", None)
