@@ -11,3 +11,12 @@ annotations.db
 
 # mem worktree symlinks (auto-added)
 .claude
+
+# mem worktree symlinks (auto-added)
+.mem/docs/data
+.claude/
+
+# YOLO training artifacts
+datasets/
+runs/
+*.pt
