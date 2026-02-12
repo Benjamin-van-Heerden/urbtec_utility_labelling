@@ -16,9 +16,9 @@ Resumable: skips already downloaded images.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
-import random
 import sqlite3
 from pathlib import Path
 
@@ -37,7 +37,7 @@ DATASET_DIR = PROJECT_ROOT / "datasets" / "meter_obb"
 CLASS_NAMES = {0: "water", 1: "electricity"}
 TRAIN_SPLIT = 0.8
 CONCURRENT_DOWNLOADS = 3
-MAX_RETRIES = 5
+MAX_RETRIES = 2
 BASE_DELAY = 2.0
 
 
@@ -186,16 +186,16 @@ def setup_directories():
 
 
 def assign_splits(annotations: list[dict]) -> dict[int, str]:
-    """Assign annotations to train/val splits."""
-    random.seed(42)
-    shuffled = annotations.copy()
-    random.shuffle(shuffled)
+    """Assign annotations to train/val splits using deterministic hashing.
 
-    split_idx = int(len(shuffled) * TRAIN_SPLIT)
+    Each annotation's split is determined solely by its ID, so adding new
+    annotations never changes the split assignment of existing ones.
+    """
     assignments = {}
-
-    for i, ann in enumerate(shuffled):
-        assignments[ann["id"]] = "train" if i < split_idx else "val"
+    for ann in annotations:
+        hash_val = int(hashlib.md5(str(ann["id"]).encode()).hexdigest(), 16)
+        split = "train" if (hash_val % 1000) < (TRAIN_SPLIT * 1000) else "val"
+        assignments[ann["id"]] = split
 
     train_count = sum(1 for s in assignments.values() if s == "train")
     val_count = len(assignments) - train_count
