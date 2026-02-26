@@ -27,3 +27,4 @@ runs/
 *.pt
 !yolo_obb/best.pt
 .DS_Store
+unclassified.log
