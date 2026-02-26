@@ -27,6 +27,7 @@ from PIL import Image
 from ultralytics import YOLO
 
 from env_settings import ENV_SETTINGS, SourceClient
+from utils.file_lock import queue_lock, read_queue, write_queue
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +38,6 @@ log = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent.parent
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "runs" / "meter_obb" / "weights" / "best.pt"
 SCANNED_IDS_PATH = PROJECT_ROOT / "scanned_ids.json"
-UNCLASSIFIED_QUEUE_PATH = PROJECT_ROOT / "unclassified_queue.json"
 
 
 def load_scanned_ids() -> set[str]:
@@ -50,18 +50,6 @@ def load_scanned_ids() -> set[str]:
 def save_scanned_ids(scanned: set[str]) -> None:
     with open(SCANNED_IDS_PATH, "w") as f:
         json.dump(sorted(scanned), f)
-
-
-def load_unclassified_queue() -> list[dict]:
-    if UNCLASSIFIED_QUEUE_PATH.exists():
-        with open(UNCLASSIFIED_QUEUE_PATH) as f:
-            return json.load(f)
-    return []
-
-
-def save_unclassified_queue(queue: list[dict]) -> None:
-    with open(UNCLASSIFIED_QUEUE_PATH, "w") as f:
-        json.dump(queue, f, indent=2)
 
 
 def get_all_client_databases() -> list[SourceClient]:
@@ -245,16 +233,18 @@ def main():
         return
 
     scanned = load_scanned_ids()
-    queue = load_unclassified_queue()
     found = 0
     scanned_this_run = 0
     failed_downloads = 0
     max_consecutive_failures = 50
 
+    with queue_lock():
+        initial_queue_size = len(read_queue())
+
     log.info(
         f"Starting scan — target: {args.target}, "
         f"previously scanned: {len(scanned)}, "
-        f"existing queue: {len(queue)}"
+        f"existing queue: {initial_queue_size}"
     )
 
     consecutive_failures = 0
@@ -298,7 +288,11 @@ def main():
                     break
 
             if not has_detections:
-                queue.append(reading)
+                with queue_lock():
+                    queue = read_queue()
+                    queue.append(reading)
+                    write_queue(queue)
+
                 found += 1
                 log.info(
                     f"[{found}/{args.target}] Unclassified: {key} "
@@ -306,7 +300,6 @@ def main():
                 )
 
                 save_scanned_ids(scanned)
-                save_unclassified_queue(queue)
 
         except Exception as e:
             log.warning(f"Inference failed for {key}: {e}")
@@ -322,13 +315,15 @@ def main():
             )
 
     save_scanned_ids(scanned)
-    save_unclassified_queue(queue)
+
+    with queue_lock():
+        final_queue_size = len(read_queue())
 
     log.info(
         f"Done. Scanned {scanned_this_run} images this run. "
         f"Found {found} unclassified. "
         f"Total scanned: {len(scanned)}. "
-        f"Queue size: {len(queue)}. "
+        f"Queue size: {final_queue_size}. "
         f"Failed downloads: {failed_downloads}."
     )
 

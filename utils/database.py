@@ -13,6 +13,7 @@ from env_settings import (
     TARGET_DISTRIBUTION,
     SourceClient,
 )
+from utils.file_lock import queue_lock, read_queue, write_queue
 from utils.models.annotation import (
     Annotation,
     ClassDistribution,
@@ -289,29 +290,19 @@ def fetch_random_reading() -> tuple[SourceReading, str] | None:
 
 def get_unclassified_queue_size() -> int:
     """Get the number of remaining images in the unclassified queue."""
-    queue_path = Path(__file__).parent.parent / "unclassified_queue.json"
-    if not queue_path.exists():
-        return 0
-    with open(queue_path) as f:
-        return len(json.load(f))
+    with queue_lock():
+        return len(read_queue())
 
 
 def pop_unclassified_reading() -> tuple[SourceReading, str] | None:
     """Pop the next reading from the unclassified queue."""
-    queue_path = Path(__file__).parent.parent / "unclassified_queue.json"
-    if not queue_path.exists():
-        return None
+    with queue_lock():
+        queue = read_queue()
+        if not queue:
+            return None
 
-    with open(queue_path) as f:
-        queue = json.load(f)
-
-    if not queue:
-        return None
-
-    entry = queue.pop(0)
-
-    with open(queue_path, "w") as f:
-        json.dump(queue, f, indent=2)
+        entry = queue.pop(0)
+        write_queue(queue)
 
     reading = SourceReading(
         reading_id=entry["source_reading_id"],

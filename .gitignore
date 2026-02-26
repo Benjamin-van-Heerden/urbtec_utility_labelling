@@ -19,6 +19,7 @@ annotations.db
 # Unclassified queue runtime data
 scanned_ids.json
 unclassified_queue.json
+unclassified_queue.json.lock
 
 # YOLO training artifacts
 datasets/
