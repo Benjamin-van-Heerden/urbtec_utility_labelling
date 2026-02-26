@@ -20,3 +20,4 @@ annotations.db
 datasets/
 runs/
 *.pt
+.DS_Store
