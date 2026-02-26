@@ -16,6 +16,10 @@ annotations.db
 .mem/docs/data
 .claude/
 
+# Unclassified queue runtime data
+scanned_ids.json
+unclassified_queue.json
+
 # YOLO training artifacts
 datasets/
 runs/

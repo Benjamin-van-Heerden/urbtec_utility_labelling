@@ -9,7 +9,9 @@ from components.streamlit_drawable_canvas import st_canvas
 from utils.database import (
     fetch_random_reading,
     get_class_distribution,
+    get_unclassified_queue_size,
     init_local_db,
+    pop_unclassified_reading,
     save_annotation,
 )
 from utils.models.annotation import (
@@ -142,6 +144,20 @@ with col_stats3:
 
 st.divider()
 
+# Labelling mode selector
+labelling_mode = st.radio(
+    "Image source",
+    ["Random sample", "Unclassified only"],
+    horizontal=True,
+)
+
+if labelling_mode == "Unclassified only":
+    queue_size = get_unclassified_queue_size()
+    if queue_size > 0:
+        st.info(f"**{queue_size}** unclassified images remaining in queue")
+    else:
+        st.warning("Unclassified queue is empty. Run `scripts/find_unclassified.py` to populate it.")
+
 # Session state for current image and detections
 if "current_reading" not in st.session_state:
     st.session_state.current_reading = None
@@ -158,7 +174,7 @@ if "current_client" not in st.session_state:
 
 
 def load_new_image():
-    """Load a new image from one of the source databases."""
+    """Load a new image from one of the source databases or the unclassified queue."""
     st.session_state.image_load_error = None
     st.session_state.current_image = None
     st.session_state.current_reading = None
@@ -166,9 +182,51 @@ def load_new_image():
     st.session_state.detections = []
     st.session_state.canvas_key += 1
 
-    # Try to fetch a reading (with retries for failed image downloads)
+    if labelling_mode == "Unclassified only":
+        _load_from_unclassified_queue()
+    else:
+        _load_random_image()
+
+
+def _load_from_unclassified_queue():
+    """Load the next image from the unclassified queue."""
     max_attempts = 5
-    failed_readings: list[tuple[int, str]] = []  # (reading_id, client_name)
+
+    for _ in range(max_attempts):
+        result = pop_unclassified_reading()
+
+        if result is None:
+            st.session_state.image_load_error = "Unclassified queue is empty."
+            return
+
+        reading, client_name = result
+
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(reading.image_url)
+                response.raise_for_status()
+
+                image_data = response.content
+                image = Image.open(BytesIO(image_data))
+                image.thumbnail((CANVAS_WIDTH, CANVAS_HEIGHT), Image.Resampling.LANCZOS)
+
+                st.session_state.current_reading = reading
+                st.session_state.current_image = image
+                st.session_state.current_client = client_name
+                return
+
+        except Exception:
+            continue
+
+    st.session_state.image_load_error = (
+        f"Failed to load image after {max_attempts} attempts."
+    )
+
+
+def _load_random_image():
+    """Load a random image using the distribution-balanced approach."""
+    max_attempts = 5
+    failed_readings: list[tuple[int, str]] = []
 
     for _ in range(max_attempts):
         result = fetch_random_reading()
@@ -179,11 +237,9 @@ def load_new_image():
 
         reading, client_name = result
 
-        # Skip if we already failed to download this one
         if (reading.reading_id, client_name) in failed_readings:
             continue
 
-        # Try to download the image
         try:
             with httpx.Client(timeout=30.0) as client:
                 response = client.get(reading.image_url)
@@ -191,8 +247,6 @@ def load_new_image():
 
                 image_data = response.content
                 image = Image.open(BytesIO(image_data))
-
-                # Resize image to fit canvas while maintaining aspect ratio
                 image.thumbnail((CANVAS_WIDTH, CANVAS_HEIGHT), Image.Resampling.LANCZOS)
 
                 st.session_state.current_reading = reading

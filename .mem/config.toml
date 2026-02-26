@@ -5,16 +5,28 @@ name = "urbtec_utility_labelling"
 # Project description to help AI agents understand the codebase
 description = """
 This project is a utility for labeling data for machine learning models. Specifically, it is used to label utility meter images with bounding boxes which will later be used to train a YOLO model.
+
 """
 
 # Template slugs to load from ~/.config/mem/templates/
 generic_templates = ["general", "python"]
 
 # Files to include in onboard output
-# [[files]]
-# path = "README.md"
-# description = "Project overview and setup instructions"
+[[files]]
+path = "README.md"
+description = "Project overview and setup instructions"
+
+# Directories whose tree structure is included in onboard output
+# [[tree_dirs]]
+# path = "src"
+# description = "Source code"
 
 [worktree]
-# Paths to symlink into worktrees instead of copying (e.g. large data dirs)
+# Paths to symlink into worktrees instead of copying (e.g. large data dirs) - will be automatically added to .gitignore - necessary for symlinks to work with version control
 symlink_paths = [".mem/docs/data", ".claude"]
+
+[branches]
+# Name of the production/main branch
+main = "main"
+# Name of the staging/test branch
+test = "test"

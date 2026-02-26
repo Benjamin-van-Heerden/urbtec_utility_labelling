@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     source_db_user: str = ""
     source_db_password: str = ""
 
+    @property
+    def api_database(self) -> str:
+        if self.app_env == "qa":
+            return "mobixhep_urbtec_api"
+        return "mobixenn_api"
+
 
 def get_env_or_die():
     settings = Settings()

@@ -287,6 +287,44 @@ def fetch_random_reading() -> tuple[SourceReading, str] | None:
     return None
 
 
+def get_unclassified_queue_size() -> int:
+    """Get the number of remaining images in the unclassified queue."""
+    queue_path = Path(__file__).parent.parent / "unclassified_queue.json"
+    if not queue_path.exists():
+        return 0
+    with open(queue_path) as f:
+        return len(json.load(f))
+
+
+def pop_unclassified_reading() -> tuple[SourceReading, str] | None:
+    """Pop the next reading from the unclassified queue."""
+    queue_path = Path(__file__).parent.parent / "unclassified_queue.json"
+    if not queue_path.exists():
+        return None
+
+    with open(queue_path) as f:
+        queue = json.load(f)
+
+    if not queue:
+        return None
+
+    entry = queue.pop(0)
+
+    with open(queue_path, "w") as f:
+        json.dump(queue, f, indent=2)
+
+    reading = SourceReading(
+        reading_id=entry["source_reading_id"],
+        meter_no=entry["meter_no"],
+        utility_type=entry["utility_type"],
+        image_url=entry["image_url"],
+        reading_new=entry.get("reading_new"),
+        reading_old=entry.get("reading_old"),
+    )
+
+    return (reading, entry["source_client"])
+
+
 def fetch_reading_from_client(
     client: SourceClient,
     utility_type: str | None = None,
