@@ -7,7 +7,7 @@ These are likely meter types not represented in the training data.
 
 Usage:
     uv run python scripts/find_unclassified.py --target 100
-    uv run python scripts/find_unclassified.py --target 50 --model runs/meter_obb/weights/best.pt
+    uv run python scripts/find_unclassified.py --target 50 --model yolo_obb/best.pt
     uv run python scripts/find_unclassified.py --target 200 --conf 0.15
 """
 
@@ -36,7 +36,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "runs" / "meter_obb" / "weights" / "best.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "yolo_obb" / "best.pt"
 SCANNED_IDS_PATH = PROJECT_ROOT / "scanned_ids.json"
 
 

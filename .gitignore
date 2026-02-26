@@ -25,4 +25,5 @@ unclassified_queue.json.lock
 datasets/
 runs/
 *.pt
+!yolo_obb/best.pt
 .DS_Store
