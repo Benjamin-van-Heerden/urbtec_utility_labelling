@@ -527,6 +527,9 @@ if st.session_state.current_reading and st.session_state.current_image:
                 try:
                     save_annotation(annotation)
                     st.toast("Annotation saved!")
+                    # Clear current reading so it doesn't get pushed back to the queue
+                    st.session_state.current_reading = None
+                    st.session_state.current_client = None
                     # Auto-load next image
                     load_new_image()
                     st.rerun()
