@@ -38,6 +38,8 @@ They are shown during onboard so every session has access to accumulated project
 - `mem log` is not an interactive command and takes no arguments. When prompted to "Create a log" or "Let's log" you should simply run `mem log` and follow the instructions
 - When working in the context of a spec (inside a worktree directory), you are ABSOLUTELY NEVER allowed to perform mutating action on the main repo directory in any way shape or form. No git operations, if any merge or rebase fails inside a spec, you must resolve the issues inside that spec!
 - Do not add your name or the fact that you co-authored something to any commit messages. Commit messages should be clean and descriptive, no extra information.
+- Do not run `mem onboard` arbitrarily - it's output can be very large and typically within the scope of a session it won't provide any additional information. The purpose of the onboard command is just to sync version control and build *initial* context.
+- The outputs produced by the mem commands are to be strictly adhered to. Especially in the cases where mem instructs you to stop and give feedback. This is important to keep a human in the loop.
 </MEMCONTENT>
 
 

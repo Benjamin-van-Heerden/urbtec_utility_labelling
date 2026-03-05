@@ -316,6 +316,23 @@ def pop_unclassified_reading() -> tuple[SourceReading, str] | None:
     return (reading, entry["source_client"])
 
 
+def push_unclassified_reading(reading: SourceReading, client_name: str) -> None:
+    """Push a reading back to the front of the unclassified queue."""
+    entry = {
+        "source_reading_id": reading.reading_id,
+        "source_client": client_name,
+        "meter_no": reading.meter_no,
+        "utility_type": reading.utility_type,
+        "image_url": reading.image_url,
+        "reading_new": reading.reading_new,
+        "reading_old": reading.reading_old,
+    }
+    with queue_lock():
+        queue = read_queue()
+        queue.insert(0, entry)
+        write_queue(queue)
+
+
 def fetch_reading_from_client(
     client: SourceClient,
     utility_type: str | None = None,

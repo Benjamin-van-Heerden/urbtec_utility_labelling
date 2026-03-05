@@ -12,6 +12,7 @@ from utils.database import (
     get_unclassified_queue_size,
     init_local_db,
     pop_unclassified_reading,
+    push_unclassified_reading,
     save_annotation,
 )
 from utils.models.annotation import (
@@ -173,8 +174,23 @@ if "current_client" not in st.session_state:
     st.session_state.current_client = None  # Which client the current image is from
 
 
+def _push_back_current_if_unclassified():
+    """If the current image came from the unclassified queue, push it back."""
+    if (
+        labelling_mode == "Unclassified only"
+        and st.session_state.current_reading
+        and st.session_state.current_client
+    ):
+        push_unclassified_reading(
+            st.session_state.current_reading,
+            st.session_state.current_client,
+        )
+
+
 def load_new_image():
     """Load a new image from one of the source databases or the unclassified queue."""
+    _push_back_current_if_unclassified()
+
     st.session_state.image_load_error = None
     st.session_state.current_image = None
     st.session_state.current_reading = None
@@ -442,7 +458,7 @@ if st.session_state.current_reading and st.session_state.current_image:
 
     st.divider()
 
-    col_submit, col_skip = st.columns(2)
+    col_submit, col_skip, col_reset = st.columns(3)
 
     submit_label = (
         "💾 Submit Annotation"
@@ -520,6 +536,12 @@ if st.session_state.current_reading and st.session_state.current_image:
     with col_skip:
         if st.button("⏭️ Skip Image", use_container_width=True):
             load_new_image()
+            st.rerun()
+
+    with col_reset:
+        if st.button("🔄 Reset Annotation", use_container_width=True):
+            st.session_state.detections = []
+            st.session_state.canvas_key += 1
             st.rerun()
 
 else:
